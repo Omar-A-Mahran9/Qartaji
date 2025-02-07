@@ -71,7 +71,11 @@ class AuthController extends Controller
                 }
             }
         }
-
+        // If a referral code is used, store the referral relationship
+        if ($request->referral_code) {
+            $referrer = User::where('referral_code', $request->referral_code)->first();
+            $this->referralRepo->storeReferral($referrer->id, $user->id, $request->referral_code);
+        }
         return $this->json('Registration successfully complete', [
             'user' => new UserResource($user),
             'access' => UserRepository::getAccessToken($user),

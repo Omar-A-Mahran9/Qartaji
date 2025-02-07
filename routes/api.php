@@ -15,6 +15,7 @@ use App\Http\Controllers\API\LegalPageController;
 use App\Http\Controllers\API\MasterController;
 use App\Http\Controllers\API\OrderController;
 use App\Http\Controllers\API\ProductController;
+use App\Http\Controllers\API\ReferralController;
 use App\Http\Controllers\API\ReviewController;
 use App\Http\Controllers\API\ShopController;
 use App\Http\Controllers\API\SocialAuthController;
@@ -116,7 +117,7 @@ Route::controller(ShopController::class)->group(function () {
 });
 
 Route::middleware(['auth:sanctum', 'role:customer'])->group(function () {
-
+    Route::get('/referral/list', [ReferralController::class, 'getUserReferrals']);
     //user route
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::controller(UserController::class)->group(function () {

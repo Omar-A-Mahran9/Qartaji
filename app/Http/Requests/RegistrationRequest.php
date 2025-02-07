@@ -39,6 +39,7 @@ class RegistrationRequest extends FormRequest
             'phone' => 'required|unique:users,phone',
             'email' => [$emailRequired, 'email', new EmailRule, 'unique:users,email'],
             'password' => 'required|string|min:6',
+            'referral_code' => 'nullable|string|exists:users,referral_code'
         ];
     }
 
