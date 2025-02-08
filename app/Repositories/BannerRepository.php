@@ -25,6 +25,8 @@ class BannerRepository extends Repository
      * */
     public static function storeByRequest(BannerRequest $request): Banner
     {
+        \Log::info('banner successfully: '. $request->banner);
+
         $thumbnail = MediaRepository::storeByRequest($request->banner, 'banners', 'thumbnail', 'image');
 
         // shop

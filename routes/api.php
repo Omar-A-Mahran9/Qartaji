@@ -80,9 +80,7 @@ Route::controller(HomeController::class)->group(function () {
 });
 
 //Banner route
-Route::controller(BannerController::class)->group(function () {
-    Route::get('/banners', 'index');
-});
+
 
 //category route
 Route::controller(CategoryController::class)->group(function () {
@@ -116,7 +114,14 @@ Route::controller(ShopController::class)->group(function () {
 });
 
 Route::middleware(['auth:sanctum', 'role:customer'])->group(function () {
+    Route::controller(BannerController::class)->group(function () {
+        Route::get('/banners', 'index');
+        Route::delete('/banners/{banner}','destroy');
+        Route::patch('/banners/{banner}/status','statusToggle');
+        Route::put('/banners/{banner}','update');
+        Route::post('/banners', 'store');
 
+    });
     //user route
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::controller(UserController::class)->group(function () {
