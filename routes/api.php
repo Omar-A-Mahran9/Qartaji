@@ -118,6 +118,8 @@ Route::controller(ShopController::class)->group(function () {
 
 Route::middleware(['auth:sanctum', 'role:customer'])->group(function () {
     Route::get('/referral/list', [ReferralController::class, 'getUserReferrals']);
+    Route::get('/referral/link', [ReferralController::class, 'generateReferralLink']);
+
     //user route
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::controller(UserController::class)->group(function () {

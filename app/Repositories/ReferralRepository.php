@@ -4,6 +4,7 @@ namespace App\Repositories;
 
 use Abedin\Maker\Repositories\Repository;
 use App\Models\Referral;
+use App\Models\User;
 
 class ReferralRepository extends Repository
 {
@@ -17,15 +18,15 @@ class ReferralRepository extends Repository
      */
     public function generateReferralLink(User $user)
     {
-        return url('/register?ref=' . $user->referral_code);
+        return url('?ref=' . $user->referral_code);
     }
 
     /**
      * Store a referral when a user signs up using a referral code.
      */
-    public function storeReferral($referrerId, $referredUserId, $referralCode)
+    public static function storeReferral($referrerId, $referredUserId, $referralCode)
     {
-        return $this->create([
+        return Referral::create([
             'referrer_id' => $referrerId,
             'referred_user_id' => $referredUserId,
             'referral_code' => $referralCode,
@@ -38,7 +39,7 @@ class ReferralRepository extends Repository
      */
     public function getUserReferrals($userId)
     {
-        return $this->where('referrer_id', $userId)->get();
+        return Referral::where('referred_user_id', $userId)->get()??[];
     }
 
     /**
@@ -46,7 +47,7 @@ class ReferralRepository extends Repository
      */
     public function checkIfUserWasReferred($userId)
     {
-        return $this->where('referred_user_id', $userId)->first();
+        return Referral::where('referred_user_id', $userId)->first();
     }
 
     /**
@@ -54,7 +55,7 @@ class ReferralRepository extends Repository
      */
     public function markReferralAsRewarded($referredUserId)
     {
-        return $this->where('referred_user_id', $referredUserId)
+        return Referral::where('referred_user_id', $referredUserId)
             ->update(['rewarded' => true]);
     }
 }

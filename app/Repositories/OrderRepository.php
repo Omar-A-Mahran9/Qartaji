@@ -204,7 +204,7 @@ class OrderRepository extends Repository
             'shop_id' => $shop->id,
             'order_code' => str_pad($lastOrderId + 1, 6, '0', STR_PAD_LEFT),
             'prefix' => $shop->prefix ?? 'RC',
-            'customer_id' => auth()->user()->customer->id,
+            'customer_id' => auth()->user()->customer->id??null,
             'coupon_id' => $getCartAmounts['coupon'],
             'delivery_charge' => $getCartAmounts['deliveryCharge'],
             'payable_amount' => $getCartAmounts['payableAmount'],
@@ -216,6 +216,8 @@ class OrderRepository extends Repository
             'address_id' => $request->address_id,
             'instruction' => $request->note,
             'payment_status' => PaymentStatus::PENDING->value,
+            'referral_code' => $request->referral_code??null,
+
         ]);
 
         return $order;
