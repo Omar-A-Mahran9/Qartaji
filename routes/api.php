@@ -121,10 +121,9 @@ Route::middleware(['auth:sanctum', 'role:customer'])->group(function () {
         Route::patch('/banners/{banner}/status','statusToggle');
         Route::put('/banners/{banner}','update');
         Route::post('/banners', 'store');
+    });
     Route::get('/referral/list', [ReferralController::class, 'getUserReferrals']);
     Route::get('/referral/link', [ReferralController::class, 'generateReferralLink']);
-
-    });
     //user route
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::controller(UserController::class)->group(function () {
