@@ -33,7 +33,7 @@ class BannerRequest extends FormRequest
     {
         $request = request();
         if ($request->is('api/*')) {
-            $lan =  'en';
+            $lan = $request->header('accept-language') ?? 'en';
             app()->setLocale($lan);
         }
 
