@@ -39,7 +39,7 @@ class ReferralRepository extends Repository
      */
     public function getUserReferrals($userId)
     {
-        return Referral::where('referred_user_id', $userId)->get()??[];
+        return Referral::where('referrer_id', $userId)->get();
     }
 
     /**
