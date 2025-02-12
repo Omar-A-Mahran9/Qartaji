@@ -89,6 +89,16 @@ Route::controller(CategoryController::class)->group(function () {
     Route::get('/category-products', 'show');
 });
 
+// Guest routes (Session-based cart)
+Route::post('/guest/cart', [CartController::class, 'storeGuest']);
+Route::get('/guest/cart', [CartController::class, 'indexGuest']);
+Route::post('/guest/checkout', [CartController::class, 'checkoutGuest']);
+
+Route::post('/guest/increment', [CartController::class, 'incrementGuest']);
+
+Route::post('/guest/decrement', [CartController::class, 'decrementGuest']);
+Route::post('/guest/cart/delete', [CartController::class, 'destroyGuest']);
+
 //sub category route
 Route::controller(SubCategoryController::class)->group(function () {
     Route::get('/sub-categories', 'index');

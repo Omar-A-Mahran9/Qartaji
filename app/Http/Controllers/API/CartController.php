@@ -28,6 +28,65 @@ class CartController extends Controller
             'cart_items' => $shopWiseProducts,
         ], 200);
     }
+    public function storeGuest(CartRequest $request)
+    {
+        $isBuyNow = $request->is_buy_now ?? false;
+        $product = ProductRepository::find($request->product_id);
+        $quantity = $request->quantity ?? 1;
+
+        if (!$product) {
+            return $this->json('Product not found', [], 404);
+        }
+
+        // ✅ Handle guest cart with session storage
+        $cartSession = session()->get('guest_cart', []);
+
+        foreach ($cartSession as &$item) {
+            if ($item['product_id'] == $request->product_id && $item['is_buy_now'] == $isBuyNow) {
+                $item['quantity'] += $quantity;
+                session()->put('guest_cart', $cartSession);
+                session()->save();
+                return $this->json('Product quantity updated in guest cart', [
+                    'total' => count($cartSession),
+                    'cart_items' => array_values($cartSession),
+                ], 200);
+            }
+        }
+
+        // Add new product to guest cart
+        $cartSession[] = [
+            'product_id' => $product->id,
+            'shop_id' => $product->shop->id,
+            'is_buy_now' => $isBuyNow,
+            'quantity' => $quantity,
+            'size' => $request->size,
+            'color' => $request->color,
+            'unit' => $request->unit ?? $product->unit?->name,
+        ];
+
+        session()->put('guest_cart', $cartSession);
+        session()->save();
+
+        return $this->json('Product added to guest cart', [
+            'total' => count($cartSession),
+            'cart_items' => array_values($cartSession),
+        ], 200);
+    }
+    public function indexGuest()
+    {
+        $isBuyNow = request()->is_buy_now ?? false;
+        $guestCart = session()->get('guest_cart', []);
+
+        // ✅ Filter cart items based on "Buy Now" status
+        $filteredGuestCart = array_filter($guestCart, function ($item) use ($isBuyNow) {
+            return $item['is_buy_now'] == $isBuyNow;
+        });
+
+        return $this->json('Guest cart retrieved', [
+            'total' => count($filteredGuestCart),
+            'cart_items' => array_values($filteredGuestCart),
+        ], 200);
+    }
 
     /**
      * Store a newly created resource in storage.
@@ -70,13 +129,13 @@ class CartController extends Controller
         ], 200);
     }
 
+
     /**
      * increase cart quantity
      */
     public function increment(CartRequest $request)
     {
         $isBuyNow = $request->is_buy_now ?? false;
-
         $product = ProductRepository::find($request->product_id);
 
         $customer = auth()->user()->customer;
@@ -120,6 +179,52 @@ class CartController extends Controller
             'cart_items' => $shopWiseProducts,
         ], 200);
     }
+    public function incrementGuest(CartRequest $request)
+    {
+        $isBuyNow = $request->is_buy_now ?? false;
+        $product = ProductRepository::find($request->product_id);
+
+        // ✅ Retrieve guest cart from session
+        $guestCart = session()->get('guest_cart', []);
+
+        // Find the product in the guest cart
+        $cartKey = array_search($request->product_id, array_column($guestCart, 'product_id'));
+
+        if ($cartKey === false) {
+            return $this->json('Sorry, product not found in cart', [], 422);
+        }
+
+        $quantity = $guestCart[$cartKey]['quantity'];
+
+        // ✅ Check stock availability
+        $flashSale = $product->flashSales?->first();
+        $flashSaleProduct = $flashSale?->products()->where('id', $product->id)->first();
+        $productQty = $product->quantity;
+
+        if ($flashSaleProduct) {
+            $flashSaleQty = $flashSaleProduct->pivot->quantity - $flashSaleProduct->pivot->sale_quantity;
+            if ($flashSaleQty > 0) {
+                $productQty = $flashSaleQty;
+            }
+        }
+
+        // ✅ Ensure quantity does not exceed stock
+        if ($productQty > $quantity) {
+            $guestCart[$cartKey]['quantity'] += 1;
+            session()->put('guest_cart', $guestCart);
+        } else {
+            return $this->json('Sorry! product cart quantity is limited. No more stock', [], 422);
+        }
+
+        // ✅ Return updated guest cart
+        $groupCart = collect($guestCart)->groupBy('shop_id');
+        $shopWiseProducts = CartRepository::ShopWiseCartProducts($groupCart);
+
+        return $this->json('Product quantity increased', [
+            'total' => count($guestCart),
+            'cart_items' => $shopWiseProducts,
+        ], 200);
+    }
 
     /**
      * decrease cart quantity
@@ -158,6 +263,42 @@ class CartController extends Controller
             'cart_items' => $shopWiseProducts,
         ], 200);
     }
+    public function decrementGuest(CartRequest $request)
+    {
+        $isBuyNow = $request->is_buy_now ?? false;
+        $product = ProductRepository::find($request->product_id);
+
+        // ✅ Retrieve guest cart from session
+        $guestCart = session()->get('guest_cart', []);
+
+        // Find the product in the guest cart
+        $cartKey = array_search($request->product_id, array_column($guestCart, 'product_id'));
+
+        if ($cartKey === false) {
+            return $this->json('Sorry, product not found in cart', [], 422);
+        }
+
+        // ✅ Decrease quantity but prevent it from going below 1
+        if ($guestCart[$cartKey]['quantity'] > 1) {
+            $guestCart[$cartKey]['quantity'] -= 1;
+            $message = 'Product quantity decreased';
+        } else {
+            unset($guestCart[$cartKey]); // ✅ Remove product if quantity reaches 0
+            $message = 'Product removed from cart';
+        }
+
+        // ✅ Update session storage
+        session()->put('guest_cart', array_values($guestCart)); // Reindex array to prevent gaps
+
+        // ✅ Return updated guest cart
+        $groupCart = collect($guestCart)->groupBy('shop_id');
+        $shopWiseProducts = CartRepository::ShopWiseCartProducts($groupCart);
+
+        return $this->json($message, [
+            'total' => count($guestCart),
+            'cart_items' => $shopWiseProducts,
+        ], 200);
+    }
 
     public function checkout(CheckoutRequest $request)
     {
@@ -189,6 +330,74 @@ class CartController extends Controller
             'apply_coupon' => $applyCoupon,
             'checkout_items' => $shopWiseProducts,
         ]);
+    }
+    public function checkoutGuest(CheckoutRequest $request)
+    {
+        $isBuyNow = $request->is_buy_now ?? false;
+        $shopIds = $request->shop_ids ?? [];
+
+        // ✅ Get guest cart from session
+        $cartSession = session()->get('guest_cart', []);
+
+        // ✅ Filter only the selected shop items
+        $guestCarts = array_filter($cartSession, function ($item) use ($shopIds, $isBuyNow) {
+            return in_array($item['shop_id'], $shopIds) && $item['is_buy_now'] == $isBuyNow;
+        });
+
+        if (empty($guestCarts)) {
+            return response()->json(['error' => 'Guest cart is empty'], 400);
+        }
+
+        // ✅ Process checkout for guest users
+        $checkout = CartRepository::checkoutByRequest($request, collect($guestCarts));
+        $groupCart = collect($guestCarts)->groupBy('shop_id');
+        $shopWiseProducts = CartRepository::ShopWiseCartProducts($groupCart);
+
+        $message = 'Checkout information';
+        $applyCoupon = false;
+
+        if ($request->coupon_code && $checkout['coupon_discount'] > 0) {
+            $applyCoupon = true;
+            $message = 'Coupon applied';
+        } elseif ($request->coupon_code) {
+            $message = 'Coupon not applied';
+        }
+
+        return response()->json([
+            'message' => $message,
+            'checkout' => $checkout,
+            'apply_coupon' => $applyCoupon,
+            'checkout_items' => $shopWiseProducts,
+        ], 200);
+    }
+    public function destroyGuest(CartRequest $request)
+    {
+        $isBuyNow = $request->is_buy_now ?? false;
+
+        // ✅ Retrieve guest cart from session
+        $guestCart = session()->get('guest_cart', []);
+
+        // Find the product in the guest cart
+        $cartKey = array_search($request->product_id, array_column($guestCart, 'product_id'));
+
+        if ($cartKey === false) {
+            return $this->json('Sorry, product not found in cart', [], 422);
+        }
+
+        // ✅ Remove product from cart
+        unset($guestCart[$cartKey]);
+
+        // ✅ Update session storage (Reindex array)
+        session()->put('guest_cart', array_values($guestCart));
+
+        // ✅ Return updated guest cart
+        $groupCart = collect($guestCart)->groupBy('shop_id');
+        $shopWiseProducts = CartRepository::ShopWiseCartProducts($groupCart);
+
+        return $this->json('Product removed from cart', [
+            'total' => count($guestCart),
+            'cart_items' => $shopWiseProducts,
+        ], 200);
     }
 
     public function destroy(CartRequest $request)
