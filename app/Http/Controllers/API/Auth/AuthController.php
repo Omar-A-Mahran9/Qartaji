@@ -12,6 +12,7 @@ use App\Models\User;
 use App\Models\VerifyManage;
 use App\Repositories\CustomerRepository;
 use App\Repositories\DeviceKeyRepository;
+use App\Repositories\ReferralRepository;
 use App\Repositories\UserRepository;
 use App\Repositories\VerificationCodeRepository;
 use App\Repositories\WalletRepository;
@@ -71,7 +72,11 @@ class AuthController extends Controller
                 }
             }
         }
-
+        // If a referral code is used, store the referral relationship
+        if ($request->referral_code) {
+            $referrer = User::where('referral_code', $request->referral_code)->first();
+            ReferralRepository::storeReferral($referrer->id, $user->id, $request->referral_code);
+        }
         return $this->json('Registration successfully complete', [
             'user' => new UserResource($user),
             'access' => UserRepository::getAccessToken($user),

@@ -15,6 +15,7 @@ use App\Http\Controllers\API\LegalPageController;
 use App\Http\Controllers\API\MasterController;
 use App\Http\Controllers\API\OrderController;
 use App\Http\Controllers\API\ProductController;
+use App\Http\Controllers\API\ReferralController;
 use App\Http\Controllers\API\ReviewController;
 use App\Http\Controllers\API\ShopController;
 use App\Http\Controllers\API\SocialAuthController;
@@ -120,6 +121,8 @@ Route::middleware(['auth:sanctum', 'role:customer'])->group(function () {
         Route::patch('/banners/{banner}/status','statusToggle');
         Route::put('/banners/{banner}','update');
         Route::post('/banners', 'store');
+    Route::get('/referral/list', [ReferralController::class, 'getUserReferrals']);
+    Route::get('/referral/link', [ReferralController::class, 'generateReferralLink']);
 
     });
     //user route

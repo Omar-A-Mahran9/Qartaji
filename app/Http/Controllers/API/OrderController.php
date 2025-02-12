@@ -12,6 +12,9 @@ use App\Http\Resources\OrderResource;
 use App\Models\Order;
 use App\Models\Payment;
 use App\Models\Product;
+use App\Models\Referral;
+use App\Models\User;
+use App\Models\Wallet;
 use App\Repositories\NotificationRepository;
 use App\Repositories\OrderRepository;
 use Illuminate\Http\Request;
@@ -21,7 +24,7 @@ class OrderController extends Controller
     /**
      * Display a listing of the orders with status filter and pagination options.
      *
-     * @param  Request  $request  The HTTP request
+     * @param Request $request The HTTP request
      * @return Some_Return_Value json Response
      *
      * @throws Some_Exception_Class If something goes wrong
@@ -85,7 +88,20 @@ class OrderController extends Controller
 
         // Store the order
         $payment = OrderRepository::storeByrequestFromCart($request, $paymentMethod, $carts);
+        // Check if user was referred
+        $referral = Referral::where('referred_user_id', auth()->id())
+            ->where('rewarded', false)
+            ->first();
 
+        if ($referral) {
+            $referrerWallet = Wallet::where('user_id', $referral->referrer_id)->first();
+            if ($referrerWallet) {
+                // Add 10 dinars reward to the referrer’s wallet
+                $referrerWallet->increment('balance', 10);
+            }
+            // Mark referral as rewarded
+            $referral->update(['rewarded' => true]);
+        }
         $paymentUrl = null;
         if ($paymentMethod->name != 'CASH') {
             $paymentUrl = route('order.payment', ['payment' => $payment, 'gateway' => $request->payment_method]);
@@ -112,7 +128,23 @@ class OrderController extends Controller
             'order_payment_url' => $paymentUrl,
         ]);
     }
+    private function rewardReferrer($referralCode, $customerId = null)
+    {
+        // Find the referrer using the referral code
+        $referrer = User::where('referral_code', $referralCode)->first();
 
+        if (!$referrer) {
+            return response()->json(['message' => 'Referrer not found'], 404);
+        }
+
+        // Get or create the referrer's wallet
+        $wallet = Wallet::firstOrCreate(['user_id' => $referrer->id], ['balance' => 0]);
+
+        // Reward the referrer (e.g., 10 dinars)
+        $wallet->increment('balance', 10);
+
+        return response()->json(['message' => 'Referral reward given to referrer']);
+    }
     /**
      * Again order
      */
@@ -167,7 +199,7 @@ class OrderController extends Controller
     /**
      * Show the order details.
      *
-     * @param  Request  $request  The request object
+     * @param Request $request The request object
      */
     public function show(Request $request)
     {

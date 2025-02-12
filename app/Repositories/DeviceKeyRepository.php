@@ -17,7 +17,7 @@ class DeviceKeyRepository extends Repository
         return self::query()->where('key', $key)->first();
     }
 
-    public static function storeByRequest($user, $request): DeviceKey
+    public static function storeByRequest($user, $request): ?DeviceKey
     {
         $exists = self::findByKey($request->device_key);
         if (! $exists && $request->device_key) {
