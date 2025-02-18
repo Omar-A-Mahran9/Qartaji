@@ -73,7 +73,7 @@ class OrderController extends Controller
         $perPage = $request->per_page ?? 10;
         $skip = ($page * $perPage) - $perPage;
 
-        // ✅ 1. Retrieve Orders by Email
+        // 1. Retrieve Orders by Email
         if (!$request->email) {
             return $this->json('Please provide an email to retrieve orders.', [], 422);
         }
@@ -83,11 +83,11 @@ class OrderController extends Controller
                 return $query->where('order_status', $orderStatus);
             })->latest('id');
 
-        // ✅ 2. Paginate Results
+        //  2. Paginate Results
         $total = $guestOrders->count();
         $paginatedOrders = $guestOrders->skip($skip)->take($perPage)->get();
 
-        // ✅ 3. Status-Wise Count
+        //  3. Status-Wise Count
         $statusWiseOrders = [
             'all' => Order::where('email', $request->email)->count(),
             'pending' => Order::where('email', $request->email)->where('order_status', OrderStatus::PENDING->value)->count(),
@@ -98,7 +98,7 @@ class OrderController extends Controller
             'cancelled' => Order::where('email', $request->email)->where('order_status', OrderStatus::CANCELLED->value)->count(),
         ];
 
-        // ✅ 4. Return Response
+        // 4. Return Response
         return $this->json('Guest orders retrieved successfully.', [
             'total' => $total,
             'status_wise_orders' => $statusWiseOrders,
@@ -190,17 +190,17 @@ class OrderController extends Controller
     {
         $isBuyNow = $request->is_buy_now ?? false;
 
-        // ✅ Retrieve cart items from the request
+        // Retrieve cart items from the request
         $cartItems = collect($request->input('cart_items', []));
 
-        // ✅ Filter by shop IDs
+        // Filter by shop IDs
         $filteredCarts = $cartItems->whereIn('shop_id', $request->shop_ids)->values();
 
         if ($filteredCarts->isEmpty()) {
             return $this->json('Sorry, shop cart is empty', [], 422);
         }
 
-        // ✅ Validate Payment Method
+        // Validate Payment Method
         $toUpper = strtoupper($request->payment_method);
         $paymentMethods = PaymentMethod::cases();
         $paymentMethod = collect($paymentMethods)->firstWhere('name', $toUpper);
@@ -209,7 +209,7 @@ class OrderController extends Controller
             return $this->json('Invalid payment method', [], 422);
         }
 
-        // ✅ Create Order for Guest User
+        // Create Order for Guest User
         $payment = OrderRepository::storeByRequestFromGuestCart(
             $request,
             $paymentMethod,
@@ -217,7 +217,7 @@ class OrderController extends Controller
         );
 
 
-        // ✅ Generate Payment URL if needed
+        // Generate Payment URL if needed
         $paymentUrl = null;
         if ($paymentMethod->name !== 'CASH') {
             $paymentUrl = route('order.payment', [
@@ -305,7 +305,7 @@ class OrderController extends Controller
     }
     public function showGuest(Request $request)
     {
-        // ✅ 1. Validate Input
+        // 1. Validate Input
         $request->validate([
             'order_id' => 'required|exists:orders,id',
             'email' => 'required|email',
@@ -313,17 +313,17 @@ class OrderController extends Controller
 
         $orderId = $request->order_id;
 
-        // ✅ 2. Search Order by `email`
+        //  2. Search Order by `email`
         $order = Order::where('id', $orderId)
             ->where('email', $request->email)
             ->first();
 
-        // ✅ 3. Return Error if Not Found
+        // 3. Return Error if Not Found
         if (!$order) {
             return $this->json('Order not found for this email.', [], 404);
         }
 
-        // ✅ 4. Return Order Details
+        // 4. Return Order Details
         return $this->json('Guest order details retrieved successfully.', [
             'order' => OrderDetailsResource::make($order),
         ]);

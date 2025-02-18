@@ -31,7 +31,7 @@ class CartRepository extends Repository
                     $cart = (object)$cart;
                 }
 
-                // ✅ Ensure $cart->product is an Eloquent model
+                // Ensure $cart->product is an Eloquent model
                 if (!isset($cart->product) || is_array($cart->product)) {
                     if (isset($cart->product_id)) {
                         $cart->product = \App\Models\Product::find($cart->product_id); // ✅ Fetch product from DB
@@ -63,7 +63,7 @@ class CartRepository extends Repository
                 $gift = null;
 
                 if (isset($cart->gift_id) && $cart->gift_id) {
-                    // ✅ Ensure $cart->gift is an Eloquent model
+                    //  Ensure $cart->gift is an Eloquent model
                     if (!isset($cart->gift) || is_array($cart->gift)) {
                         $cart->gift = \App\Models\Gift::find($cart->gift_id); // ✅ Fetch gift from DB
                     }
@@ -130,12 +130,12 @@ class CartRepository extends Repository
                 ];
             }
             if (!empty($products) && isset($products[0])) {
-                // ✅ Convert $products[0] to an object if it's an array
+                //  Convert $products[0] to an object if it's an array
                 if (is_array($products[0])) {
                     $products[0] = (object) $products[0];
                 }
 
-                // ✅ Ensure $products[0]->shop is an Eloquent model
+                // Ensure $products[0]->shop is an Eloquent model
                 if (!isset($products[0]->shop) || is_array($products[0]->shop)) {
                     if (isset($products[0]->shop_id)) {
                         $products[0]->shop = \App\Models\Shop::find($products[0]->shop_id); // ✅ Fetch shop from DB
@@ -243,14 +243,14 @@ class CartRepository extends Repository
         $totalOrderTaxAmount = 0;
 
         if (!$carts->isEmpty()) {
-            foreach ($carts as &$cart) { // ✅ Use reference to modify directly
+            foreach ($carts as &$cart) { //  Use reference to modify directly
 
-                // ✅ Convert $cart from array to object
+                //  Convert $cart from array to object
                 if (is_array($cart)) {
                     $cart = (object)$cart;
                 }
 
-                // ✅ Ensure $cart->product exists
+                //  Ensure $cart->product exists
                 if (!isset($cart->product) || !$cart->product) {
                     if (isset($cart->product_id)) {
                         $cart->product = \App\Models\Product::find($cart->product_id);
@@ -262,7 +262,7 @@ class CartRepository extends Repository
                     continue; // Skip invalid cart item
                 }
 
-                // ✅ Ensure cart has quantity
+                //  Ensure cart has quantity
                 if (!isset($cart->quantity)) {
                     \Log::error("Missing quantity for cart item", ['cart' => (array)$cart]);
                     continue; // Skip invalid cart item
@@ -300,7 +300,7 @@ class CartRepository extends Repository
                 }
                 $price += $taxAmount;
 
-                // ✅ Ensure shop exists before accessing
+                //  Ensure shop exists before accessing
                 if (!isset($product->shop)) {
                     \Log::error("Missing shop for product", ['product' => (array)$product]);
                     continue; // Skip item without a shop
@@ -308,14 +308,14 @@ class CartRepository extends Repository
 
                 $shop = $product->shop;
 
-                // ✅ Get shop-wise total amount
+                //  Get shop-wise total amount
                 if (array_key_exists($shop->id, $shopWiseTotalAmount)) {
                     $shopWiseTotalAmount[$shop->id] += ($price * $cart->quantity);
                 } else {
                     $shopWiseTotalAmount[$shop->id] = $price * $cart->quantity;
                 }
 
-                // ✅ Now `$cart->quantity` will always exist
+                //  Now `$cart->quantity` will always exist
                 $totalAmount += $price * $cart->quantity;
 
                 if ($cart->gift ?? false) {
@@ -325,7 +325,7 @@ class CartRepository extends Repository
 
             $groupCarts = collect($carts)->groupBy('shop_id');
 
-            // ✅ Get delivery charge
+            //  Get delivery charge
             $deliveryCharge = 0;
             foreach ($groupCarts as $shopId => $shopCarts) {
                 $productQty = 0;
@@ -345,7 +345,7 @@ class CartRepository extends Repository
                 }
             }
 
-            // ✅ Prepare data for coupon discount
+            //  Prepare data for coupon discount
             $products = collect([]);
             foreach ($carts as $cart) {
                 if (is_array($cart)) {
@@ -363,7 +363,7 @@ class CartRepository extends Repository
                 'products' => $products,
             ];
 
-            // ✅ Get coupon discount
+            //  Get coupon discount
             $getDiscount = CouponRepository::getCouponDiscount($array);
             $couponDiscount = $getDiscount['discount_amount'] ?? 0;
 
@@ -371,7 +371,7 @@ class CartRepository extends Repository
             $payableAmount = $totalAmount + $deliveryCharge - $couponDiscount;
         }
 
-        // ✅ Get order base tax
+        //  Get order base tax
         $orderBaseTax = VatTaxRepository::getOrderBaseTax();
         foreach ($shopWiseTotalAmount as $shopId => $subtotal) {
             if ($orderBaseTax && $orderBaseTax->deduction == DeductionType::EXCLUSIVE->value && $orderBaseTax->percentage > 0) {

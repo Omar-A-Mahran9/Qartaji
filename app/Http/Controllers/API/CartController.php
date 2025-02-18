@@ -38,7 +38,7 @@ class CartController extends Controller
             return $this->json('Product not found', [], 404);
         }
 
-        // ✅ Handle guest cart with session storage
+        //  Handle guest cart with session storage
         $cartSession = session()->get('guest_cart', []);
 
         foreach ($cartSession as &$item) {
@@ -77,7 +77,7 @@ class CartController extends Controller
         $isBuyNow = request()->is_buy_now ?? false;
         $guestCart = session()->get('guest_cart', []);
 
-        // ✅ Filter cart items based on "Buy Now" status
+        //  Filter cart items based on "Buy Now" status
         $filteredGuestCart = array_filter($guestCart, function ($item) use ($isBuyNow) {
             return $item['is_buy_now'] == $isBuyNow;
         });
@@ -196,7 +196,7 @@ class CartController extends Controller
 
         $quantity = $guestCart[$cartKey]['quantity'];
 
-        // ✅ Check stock availability
+        // Check stock availability
         $flashSale = $product->flashSales?->first();
         $flashSaleProduct = $flashSale?->products()->where('id', $product->id)->first();
         $productQty = $product->quantity;
@@ -208,7 +208,7 @@ class CartController extends Controller
             }
         }
 
-        // ✅ Ensure quantity does not exceed stock
+        //  Ensure quantity does not exceed stock
         if ($productQty > $quantity) {
             $guestCart[$cartKey]['quantity'] += 1;
             session()->put('guest_cart', $guestCart);
@@ -216,7 +216,7 @@ class CartController extends Controller
             return $this->json('Sorry! product cart quantity is limited. No more stock', [], 422);
         }
 
-        // ✅ Return updated guest cart
+        //  Return updated guest cart
         $groupCart = collect($guestCart)->groupBy('shop_id');
         $shopWiseProducts = CartRepository::ShopWiseCartProducts($groupCart);
 
@@ -268,7 +268,7 @@ class CartController extends Controller
         $isBuyNow = $request->is_buy_now ?? false;
         $product = ProductRepository::find($request->product_id);
 
-        // ✅ Retrieve guest cart from session
+        //  Retrieve guest cart from session
         $guestCart = session()->get('guest_cart', []);
 
         // Find the product in the guest cart
@@ -278,7 +278,7 @@ class CartController extends Controller
             return $this->json('Sorry, product not found in cart', [], 422);
         }
 
-        // ✅ Decrease quantity but prevent it from going below 1
+        // Decrease quantity but prevent it from going below 1
         if ($guestCart[$cartKey]['quantity'] > 1) {
             $guestCart[$cartKey]['quantity'] -= 1;
             $message = 'Product quantity decreased';
@@ -287,10 +287,10 @@ class CartController extends Controller
             $message = 'Product removed from cart';
         }
 
-        // ✅ Update session storage
+        //  Update session storage
         session()->put('guest_cart', array_values($guestCart)); // Reindex array to prevent gaps
 
-        // ✅ Return updated guest cart
+        // Return updated guest cart
         $groupCart = collect($guestCart)->groupBy('shop_id');
         $shopWiseProducts = CartRepository::ShopWiseCartProducts($groupCart);
 
@@ -336,10 +336,10 @@ class CartController extends Controller
         $isBuyNow = $request->is_buy_now ?? false;
         $shopIds = $request->shop_ids ?? [];
 
-        // ✅ Get guest cart from session
+        //  Get guest cart from session
         $cartSession = session()->get('guest_cart', []);
 
-        // ✅ Filter only the selected shop items
+        // Filter only the selected shop items
         $guestCarts = array_filter($cartSession, function ($item) use ($shopIds, $isBuyNow) {
             return in_array($item['shop_id'], $shopIds) && $item['is_buy_now'] == $isBuyNow;
         });
@@ -348,7 +348,7 @@ class CartController extends Controller
             return response()->json(['error' => 'Guest cart is empty'], 400);
         }
 
-        // ✅ Process checkout for guest users
+        //  Process checkout for guest users
         $checkout = CartRepository::checkoutByRequest($request, collect($guestCarts));
         $groupCart = collect($guestCarts)->groupBy('shop_id');
         $shopWiseProducts = CartRepository::ShopWiseCartProducts($groupCart);
@@ -374,7 +374,7 @@ class CartController extends Controller
     {
         $isBuyNow = $request->is_buy_now ?? false;
 
-        // ✅ Retrieve guest cart from session
+        //  Retrieve guest cart from session
         $guestCart = session()->get('guest_cart', []);
 
         // Find the product in the guest cart
@@ -384,13 +384,13 @@ class CartController extends Controller
             return $this->json('Sorry, product not found in cart', [], 422);
         }
 
-        // ✅ Remove product from cart
+        // Remove product from cart
         unset($guestCart[$cartKey]);
 
-        // ✅ Update session storage (Reindex array)
+        //  Update session storage (Reindex array)
         session()->put('guest_cart', array_values($guestCart));
 
-        // ✅ Return updated guest cart
+        //  Return updated guest cart
         $groupCart = collect($guestCart)->groupBy('shop_id');
         $shopWiseProducts = CartRepository::ShopWiseCartProducts($groupCart);
 
