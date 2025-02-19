@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Traits\HasTranslations;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Casts\Attribute;
@@ -16,7 +17,7 @@ use Mews\Purifier\Casts\CleanHtmlInput;
 
 class Product extends Model
 {
-    use HasFactory;
+    use HasFactory,HasTranslations;
 
     protected $guarded = ['id'];
 

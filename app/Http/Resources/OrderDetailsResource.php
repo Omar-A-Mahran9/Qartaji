@@ -44,7 +44,7 @@ class OrderDetailsResource extends JsonResource
             'delivery_charge' => (float) number_format(($this->delivery_charge ?? 0), 2, '.', ''),
             'gift_charge' => (float) number_format($this->orderGift ? $this->orderGift->price : 0, 2, '.', ''),
             'shop' => ShopResource::make($this->shop),
-            'products' => OrderProductResource::collection($this->products),
+            'products' => GuestOrderProductResource::collection($this->products),
             'invoice_url' => route('shop.download-invoice', $this->id),
             'address' => AddressResource::make($this->address),
             'gift' => GiftOrderResource::make($this->orderGift),

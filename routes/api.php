@@ -98,6 +98,11 @@ Route::post('/guest/increment', [CartController::class, 'incrementGuest']);
 
 Route::post('/guest/decrement', [CartController::class, 'decrementGuest']);
 Route::post('/guest/cart/delete', [CartController::class, 'destroyGuest']);
+Route::post('/guest/order', [OrderController::class, 'storeGuest']);
+Route::post('/guest/order/payment', [OrderController::class, 'paymentGuest']);
+Route::post('/guest/order/cancel', [OrderController::class, 'cancelGuest']);
+Route::get('/guest/order/show', [OrderController::class, 'showGuest']);
+Route::get('/guest/orders', [OrderController::class, 'indexGuest']);
 
 //sub category route
 Route::controller(SubCategoryController::class)->group(function () {

@@ -64,22 +64,17 @@ class ProductRepository extends Repository
         $generaleSetting = generaleSetting('setting');
         $approve = $generaleSetting?->new_product_approval ? false : true;
 
-        /**
-         * @var \App\Models\User $user
-         */
-        $user = auth()->user();
-        $isAdmin = false;
-        if ($user->hasRole('root') || ($generaleSetting?->shop_type == 'single')) {
-            $isAdmin = true;
-        }
+        /** @var User $user */
+        $user = Auth::user();
+        $isAdmin = $user->hasRole('root') || ($generaleSetting?->shop_type === 'single');
 
+        // Clean description
         $description = Purifier::clean(self::sanitizeUnicode($request->description));
 
-        $product = self::create([
+        // Create Product (basic fields)
+        $product = Product::create([
+            'name' => $request->name, // Store default locale name directly
             'shop_id' => $shop?->id,
-            'name' => $request->name,
-            'description' => $description,
-            'short_description' => $request->short_description,
             'brand_id' => $request->brand,
             'unit_id' => $request->unit,
             'price' => $request->price,
@@ -94,8 +89,15 @@ class ProductRepository extends Repository
             'is_approve' => $isAdmin ? true : $approve,
         ]);
 
+        // 🌐 Automatically Save Translations Based on Current Locale
+        $locale = app()->getLocale();
+        $product->addTranslation('name', $locale, $request->name);
+        $product->addTranslation('description', $locale, $description);
+        $product->addTranslation('short_description', $locale, $request->short_description ?? '');
+
+        // 🎨 Sync Colors
         if ($request->is('api/*')) {
-            if ($request->color && is_array($request->color)) {
+            if (is_array($request->color)) {
                 $colors = array_column($request->color, 'id');
                 $product->colors()->sync($colors);
             }
@@ -105,14 +107,15 @@ class ProductRepository extends Repository
             }
         }
 
+        // 🗂️ Sync Categories & Subcategories
         $product->categories()->sync($request->category ?? []);
         $product->subcategories()->sync($request->sub_category ?? []);
 
+        // 📏 Sync Sizes
         if ($request->is('api/*')) {
-            if ($request->size && is_array($request->size)) {
-                foreach ($request->size ?? [] as $size) {
-                    $price = 0;
-                    $product->sizes()->attach($size, ['price' => $price]);
+            if (is_array($request->size)) {
+                foreach ($request->size as $size) {
+                    $product->sizes()->attach($size, ['price' => 0]);
                 }
             }
         } else {
@@ -120,13 +123,14 @@ class ProductRepository extends Repository
                 $product->sizes()->attach($size['id'], ['price' => $size['price']]);
             }
 
-            // sync tax
+            // 💰 Sync VAT Taxes
             $product->vatTaxes()->sync($request->taxs ?? []);
         }
 
-        foreach ($request->additionThumbnail as $additionThumbnail) {
-            $thumbnail = MediaRepository::storeByRequest($additionThumbnail, 'products', 'thumbnail', 'image');
-            $product->medias()->attach($thumbnail->id);
+        // 🖼️ Store Additional Thumbnails
+        foreach ($request->additionThumbnail ?? [] as $additionThumbnail) {
+            $additionalMedia = MediaRepository::storeByRequest($additionThumbnail, 'products', 'thumbnail', 'image');
+            $product->medias()->attach($additionalMedia->id);
         }
 
         return $product;

@@ -66,6 +66,47 @@ class OrderController extends Controller
         ]);
     }
 
+    public function indexGuest(Request $request)
+    {
+        $orderStatus = $request->order_status;
+        $page = $request->page ?? 1;
+        $perPage = $request->per_page ?? 10;
+        $skip = ($page * $perPage) - $perPage;
+
+        // 1. Retrieve Orders by Email
+        if (!$request->email) {
+            return $this->json('Please provide an email to retrieve orders.', [], 422);
+        }
+
+        $guestOrders = Order::where('email', $request->email)
+            ->when($orderStatus, function ($query) use ($orderStatus) {
+                return $query->where('order_status', $orderStatus);
+            })->latest('id');
+
+        //  2. Paginate Results
+        $total = $guestOrders->count();
+        $paginatedOrders = $guestOrders->skip($skip)->take($perPage)->get();
+
+        //  3. Status-Wise Count
+        $statusWiseOrders = [
+            'all' => Order::where('email', $request->email)->count(),
+            'pending' => Order::where('email', $request->email)->where('order_status', OrderStatus::PENDING->value)->count(),
+            'confirm' => Order::where('email', $request->email)->where('order_status', OrderStatus::CONFIRM->value)->count(),
+            'processing' => Order::where('email', $request->email)->where('order_status', OrderStatus::PROCESSING->value)->count(),
+            'on_the_way' => Order::where('email', $request->email)->where('order_status', OrderStatus::ON_THE_WAY->value)->count(),
+            'delivered' => Order::where('email', $request->email)->where('order_status', OrderStatus::DELIVERED->value)->count(),
+            'cancelled' => Order::where('email', $request->email)->where('order_status', OrderStatus::CANCELLED->value)->count(),
+        ];
+
+        // 4. Return Response
+        return $this->json('Guest orders retrieved successfully.', [
+            'total' => $total,
+            'status_wise_orders' => $statusWiseOrders,
+            'orders' => OrderResource::collection($paginatedOrders),
+        ]);
+    }
+
+
     /**
      * Store a newly created order in storage.
      *
@@ -145,6 +186,53 @@ class OrderController extends Controller
 
         return response()->json(['message' => 'Referral reward given to referrer']);
     }
+    public function storeGuest(OrderRequest $request)
+    {
+        $isBuyNow = $request->is_buy_now ?? false;
+
+        // Retrieve cart items from the request
+        $cartItems = collect($request->input('cart_items', []));
+
+        // Filter by shop IDs
+        $filteredCarts = $cartItems->whereIn('shop_id', $request->shop_ids)->values();
+
+        if ($filteredCarts->isEmpty()) {
+            return $this->json('Sorry, shop cart is empty', [], 422);
+        }
+
+        // Validate Payment Method
+        $toUpper = strtoupper($request->payment_method);
+        $paymentMethods = PaymentMethod::cases();
+        $paymentMethod = collect($paymentMethods)->firstWhere('name', $toUpper);
+
+        if (!$paymentMethod) {
+            return $this->json('Invalid payment method', [], 422);
+        }
+
+        // Create Order for Guest User
+        $payment = OrderRepository::storeByRequestFromGuestCart(
+            $request,
+            $paymentMethod,
+            $filteredCarts
+        );
+
+
+        // Generate Payment URL if needed
+        $paymentUrl = null;
+        if ($paymentMethod->name !== 'CASH') {
+            $paymentUrl = route('order.payment', [
+                'payment' => $payment,
+                'gateway' => $request->payment_method,
+            ]);
+        }
+
+        // ✅ Return Response
+        return $this->json('Order created successfully', [
+            'message' => 'Order placed successfully. Create an account to track your orders and earn rewards.',
+            'order_payment_url' => $paymentUrl,
+        ]);
+    }
+
     /**
      * Again order
      */
@@ -215,6 +303,32 @@ class OrderController extends Controller
             'order' => OrderDetailsResource::make($order),
         ]);
     }
+    public function showGuest(Request $request)
+    {
+        // 1. Validate Input
+        $request->validate([
+            'order_id' => 'required|exists:orders,id',
+            'email' => 'required|email',
+        ]);
+
+        $orderId = $request->order_id;
+
+        //  2. Search Order by `email`
+        $order = Order::where('id', $orderId)
+            ->where('email', $request->email)
+            ->first();
+
+        // 3. Return Error if Not Found
+        if (!$order) {
+            return $this->json('Order not found for this email.', [], 404);
+        }
+
+        // 4. Return Order Details
+        return $this->json('Guest order details retrieved successfully.', [
+            'order' => OrderDetailsResource::make($order),
+        ]);
+    }
+
 
     /**
      * Cancel the order.
@@ -263,6 +377,64 @@ class OrderController extends Controller
         }
 
         return $this->json('Sorry, order cannot be cancelled because it is not pending', [], 422);
+    }
+
+    public function cancelGuest(Request $request)
+    {
+        // ✅ 1. Validate the Request
+        $request->validate([
+            'order_id' => 'required|exists:orders,id',
+            'email' => 'required|email',
+        ]);
+
+        $orderId = $request->order_id;
+
+        // ✅ 2. Retrieve the Order from Database using `email`
+        $order = Order::where('id', $orderId)
+            ->where('email', $request->email)
+            ->first();
+
+        // ✅ 3. Return Error if Order Not Found
+        if (!$order) {
+            return $this->json('Order not found for this email.', [], 404);
+        }
+
+
+        if ($order->order_status->value == OrderStatus::PENDING->value) {
+
+            // update order status
+            $order->update([
+                'order_status' => OrderStatus::CANCELLED->value,
+            ]);
+
+            foreach ($order->products as $product) {
+                $qty = $product->pivot->quantity;
+
+                $product->update(['quantity' => $product->quantity + $qty]);
+
+                $flashsale = $product->flashSales?->first();
+                $flashsaleProduct = null;
+
+                if ($flashsale) {
+                    $flashsaleProduct = $flashsale?->products()->where('id', $product->id)->first();
+
+                    if ($flashsaleProduct && $product->pivot?->price) {
+                        if ($flashsaleProduct->pivot->sale_quantity >= $qty && ($product->pivot?->price == $flashsaleProduct->pivot->price)) {
+                            $flashsale->products()->updateExistingPivot($product->id, [
+                                'sale_quantity' => $flashsaleProduct->pivot->sale_quantity - $qty,
+                            ]);
+                        }
+                    }
+                }
+            }
+
+            return $this->json('Order cancelled successfully', [
+                'order' => OrderResource::make($order),
+            ]);
+        }
+
+        return $this->json('Sorry, order cannot be cancelled because it is not pending', [], 422);
+
     }
 
     public function payment(Order $order, $paymentMethod = null)
@@ -315,4 +487,55 @@ class OrderController extends Controller
 
         return $this->json('Sorry, You can not  re-payment because payment is CASH', [], 422);
     }
+
+    public function paymentGuest(Request $request)
+    {
+        // ✅ 1. Validate Input
+        $request->validate([
+            'order_id' => 'required|exists:orders,id',
+            'email' => 'required|email',
+            'payment_method' => 'required|string',
+        ]);
+
+        $paymentMethod = strtolower($request->payment_method);
+        $orderId = $request->order_id;
+
+        // ✅ 2. Retrieve Order by `email` and `order_id`
+        $order = Order::where('id', $orderId)
+            ->where('email', $request->email)
+            ->first();
+
+        // ✅ 3. Return Error if Order Not Found
+        if (!$order) {
+            return $this->json('Order not found for this email.', [], 404);
+        }
+
+        // ✅ 4. Prevent Re-payment if Payment Method is CASH
+        if ($paymentMethod === 'cash') {
+            return $this->json('Sorry, you cannot re-pay because payment is CASH.', [], 422);
+        }
+
+        // ✅ 5. Create a Payment Record
+        $payment = Payment::create([
+            'amount' => $order->payable_amount,
+            'payment_method' => $paymentMethod,
+        ]);
+
+        // ✅ 6. Link Payment to Order
+        $payment->orders()->attach($order->id);
+
+        //  Generate Payment URL
+        $paymentUrl = route('order.payment', [
+            'payment' => $payment->id,
+            'gateway' => $payment->payment_method,
+        ]);
+
+        // Return Payment URL
+        return $this->json('Payment created successfully.', [
+            'order_payment_url' => $paymentUrl,
+        ]);
+    }
+
 }
+
+

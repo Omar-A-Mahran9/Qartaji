@@ -2,12 +2,13 @@
 
 namespace App\Models;
 
+use App\Traits\HasTranslations;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class OrderPayment extends Model
 {
-    use HasFactory;
+    use HasFactory,HasTranslations;
 
     /**
      * get the order that owns the OrderPayment

@@ -14,6 +14,7 @@ use App\Models\GeneraleSetting;
 use App\Models\Order;
 use App\Models\OrderGift;
 use App\Models\Payment;
+use App\Models\Product;
 use App\Models\Shop;
 use App\Services\NotificationServices;
 
@@ -195,12 +196,135 @@ class OrderRepository extends Repository
 
         return $payment;
     }
+    public static function storeByRequestFromGuestCart(OrderRequest $request, $paymentMethod, $cartItems): Payment
+    {
+        $totalPayableAmount = 0;
 
-    private static function createNewOrder($request, $shop, $paymentMethod, $getCartAmounts)
+        // ✅ Create Payment Record
+        $payment = Payment::create([
+            'amount' => 0,
+            'payment_method' => $paymentMethod,
+        ]);
+
+        //  Group products by shop
+        $shopProducts = $cartItems->groupBy('shop_id');
+
+        foreach ($shopProducts as $shopId => $cartProducts) {
+            $shop = Shop::find($shopId);
+            $giftProducts = [];
+            $regularProducts = [];
+
+            // Separate gift and regular products
+            foreach ($cartProducts as $cartProduct) {
+                if (isset($cartProduct['is_gift']) && $cartProduct['is_gift']) {
+                    $giftProducts[] = $cartProduct;
+                } else {
+                    $regularProducts[] = $cartProduct;
+                }
+            }
+
+            // Process Gift Products (if any)
+            foreach ($giftProducts as $giftProduct) {
+                $cartAmounts = self::getCartWiseAmounts($shop, collect([$giftProduct]), $request->coupon_code);
+                $order = self::createNewOrder($request, $shop, $paymentMethod, $cartAmounts);
+                $totalPayableAmount += $cartAmounts['payableAmount'];
+
+                $payment->orders()->attach($order->id);
+
+                //  Attach Gift Product to Order
+                $product = Product::find($giftProduct['product_id']);
+                if ($product) {
+                    $product->decrement('quantity', $giftProduct['quantity']);
+                }
+
+                $order->products()->attach($product->id, [
+                    'quantity' => $giftProduct['quantity'],
+                    'color' => $giftProduct['color'] ?? null,
+                    'size' => $giftProduct['size'] ?? null,
+                    'unit' => $giftProduct['unit'] ?? null,
+                    'is_gift' => true,
+                    'price' => $giftProduct['price'] ?? 0,
+                ]);
+
+                //  Store Gift Record
+                OrderGift::create([
+                    'order_id' => $order->id,
+                    'gift_id' => $giftProduct['gift_id'] ?? null,
+                    'address_id' => $giftProduct['address_id'] ?? null,
+                    'sender_name' => $giftProduct['gift_sender_name'] ?? '',
+                    'receiver_name' => $giftProduct['gift_receiver_name'] ?? '',
+                    'price' => $giftProduct['gift_price'] ?? 0,
+                    'note' => $giftProduct['gift_note'] ?? '',
+                ]);
+            }
+
+            //  Process Regular Products
+            if (!empty($regularProducts)) {
+                $cartAmounts = self::getCartWiseAmounts($shop, collect($regularProducts), $request->coupon_code);
+                $order = self::createNewOrder($request, $shop, $paymentMethod, $cartAmounts,$request->email);
+                $totalPayableAmount += $cartAmounts['payableAmount'];
+
+                $payment->orders()->attach($order->id);
+
+                // Attach Regular Products to Order
+                foreach ($regularProducts as $cartItem) {
+                    $product = Product::find($cartItem['product_id']);
+                    if ($product) {
+                        $product->decrement('quantity', $cartItem['quantity']);
+
+                        // ⚡ Handle Flash Sale Quantity
+                        $flashsale = $product->flashSales?->first();
+                        if ($flashsale) {
+                            $flashsaleProduct = $flashsale->products()->where('id', $product->id)->first();
+                            if ($flashsaleProduct) {
+                                $flashsale->products()->updateExistingPivot($product->id, [
+                                    'sale_quantity' => $flashsaleProduct->pivot->sale_quantity + $cartItem['quantity'],
+                                ]);
+                            }
+                        }
+
+                        // Attach Product to Order
+                        $order->products()->attach($product->id, [
+                            'quantity' => $cartItem['quantity'],
+                            'color' => $cartItem['color'] ?? null,
+                            'size' => $cartItem['size'] ?? null,
+                            'unit' => $cartItem['unit'] ?? null,
+                            'is_gift' => $cartItem['is_gift'] ?? false,
+                            'price' => $cartItem['price'] ?? 0,
+                        ]);
+
+                        //  Handle Gift (if any)
+                        if (isset($cartItem['gift_id'])) {
+                            OrderGift::create([
+                                'order_id' => $order->id,
+                                'gift_id' => $cartItem['gift_id'],
+                                'address_id' => $cartItem['address_id'] ?? null,
+                                'sender_name' => $cartItem['gift_sender_name'] ?? '',
+                                'receiver_name' => $cartItem['gift_receiver_name'] ?? '',
+                                'price' => $cartItem['gift_price'] ?? 0,
+                                'note' => $cartItem['gift_note'] ?? '',
+                            ]);
+                        }
+                    }
+                }
+            }
+        }
+
+        //  Update Payment Amount
+        $payment->update([
+            'amount' => $totalPayableAmount,
+        ]);
+
+        return $payment;
+    }
+
+    private static function createNewOrder($request, $shop, $paymentMethod, $getCartAmounts,$email)
     {
         $lastOrderId = self::query()->max('id');
 
         $order = self::create([
+            'email' => $email ?? auth()->user()?->email, // ✅ Use guest email if provided
+            'phone' => $request->phone,
             'shop_id' => $shop->id,
             'order_code' => str_pad($lastOrderId + 1, 6, '0', STR_PAD_LEFT),
             'prefix' => $shop->prefix ?? 'RC',
@@ -231,75 +355,34 @@ class OrderRepository extends Repository
         $coupon = null;
         $totalTaxAmount = 0;
 
-        $orderQty = $products->sum('quantity');
+        $orderQty = collect($products)->sum(fn($cart) => is_array($cart) ? $cart['quantity'] : $cart->quantity);
         $deliveryCharge = getDeliveryCharge($orderQty);
 
-        if (is_countable($products)) {
-            foreach ($products as $cart) {
-                $product = $cart->product;
-                $price = $product->discount_price > 0 ? $product->discount_price : $product->price;
+        foreach ($products as $cart) {
+            // Handle cart as object or array
+            $product = is_array($cart) ? Product::find($cart['product_id']) : $cart->product;
+            $quantity = is_array($cart) ? $cart['quantity'] : $cart->quantity;
+            $sizeId = is_array($cart) ? ($cart['size'] ?? null) : ($cart->size ?? null);
+            $colorId = is_array($cart) ? ($cart['color'] ?? null) : ($cart->color ?? null);
+            $isGift = is_array($cart) ? ($cart['is_gift'] ?? false) : ($cart->gift ?? false);
 
-                $flashsale = $product->flashSales?->first();
-                $flashsaleProduct = null;
-                $quantity = 0;
-
-                if ($flashsale) {
-                    $flashsaleProduct = $flashsale?->products()->where('id', $product->id)->first();
-
-                    $quantity = $flashsaleProduct?->pivot->quantity - $flashsaleProduct->pivot->sale_quantity;
-
-                    if ($quantity == 0) {
-                        $flashsaleProduct = null;
-                    } else {
-                        $price = $flashsaleProduct->pivot->price;
-                    }
-                }
-                $sizePrice = $product->sizes()?->where('id', $cart->size)->first()->pivot?->price ?? 0;
-                $price = $price + $sizePrice;
-
-                $colorPrice = $product->colors()?->where('id', $cart->color)->first()->pivot?->price ?? 0;
-                $price = $price + $colorPrice;
-
-                $taxAmount = 0;
-                foreach ($product->vatTaxes ?? [] as $tax) {
-                    if ($tax->percentage > 0) {
-                        $taxAmount += $price * ($tax->percentage / 100);
-                    }
-                }
-                $price += $taxAmount;
-
-                $totalAmount += ($price * $cart->quantity);
-
-                if ($cart->gift) {
-                    $giftCharge += $cart->gift->price;
-                }
-            }
-        } else {
-            $product = $products->product;
-
+            // Base Price with Flash Sale Check
             $price = $product->discount_price > 0 ? $product->discount_price : $product->price;
 
             $flashsale = $product->flashSales?->first();
-            $flashsaleProduct = null;
-            $quantity = 0;
-
             if ($flashsale) {
-                $flashsaleProduct = $flashsale?->products()->where('id', $product->id)->first();
-
-                $quantity = $flashsaleProduct?->pivot->quantity - $flashsaleProduct->pivot->sale_quantity;
-
-                if ($quantity == 0) {
-                    $flashsaleProduct = null;
-                } else {
+                $flashsaleProduct = $flashsale->products()->where('id', $product->id)->first();
+                if ($flashsaleProduct && ($flashsaleProduct->pivot->quantity - $flashsaleProduct->pivot->sale_quantity) > 0) {
                     $price = $flashsaleProduct->pivot->price;
                 }
             }
-            $sizePrice = $product->sizes()?->where('id', $products->size)->first()->pivot?->price ?? 0;
-            $price = $price + $sizePrice;
 
-            $colorPrice = $product->colors()?->where('id', $products->color)->first()->pivot?->price ?? 0;
-            $price = $price + $colorPrice;
+            // Add Size and Color Prices
+            $sizePrice = $product->sizes()?->where('id', $sizeId)->first()?->pivot?->price ?? 0;
+            $colorPrice = $product->colors()?->where('id', $colorId)->first()?->pivot?->price ?? 0;
+            $price += ($sizePrice + $colorPrice);
 
+            // Add VAT Taxes
             $taxAmount = 0;
             foreach ($product->vatTaxes ?? [] as $tax) {
                 if ($tax->percentage > 0) {
@@ -307,35 +390,38 @@ class OrderRepository extends Repository
                 }
             }
             $price += $taxAmount;
+            $totalTaxAmount += $taxAmount * $quantity;
 
-            $totalAmount = $price * $products->quantity;
-            if ($products->gift) {
-                $giftCharge += $products->gift->price;
+            //  Add Gift Charges
+            if ($isGift) {
+                $giftCharge += is_array($cart) ? ($cart['gift_price'] ?? 0) : ($cart->gift->price ?? 0);
             }
+
+            //  Accumulate Total Amount
+            $totalAmount += ($price * $quantity);
         }
 
+        // Add Gift Charge
         $totalAmount += $giftCharge;
 
-        // order vat taxes
+        // Add Order Base VAT
         $orderBaseTax = VatTaxRepository::getOrderBaseTax();
         if ($orderBaseTax && $orderBaseTax->deduction == DeductionType::EXCLUSIVE->value && $orderBaseTax->percentage > 0) {
             $vatTaxAmount = $totalAmount * ($orderBaseTax->percentage / 100);
             $totalTaxAmount += $vatTaxAmount;
         }
 
-        // get coupon discount
+        //  Get Coupon Discount
         $couponDiscount = self::getCouponDiscount($totalAmount, $shop->id, $couponCode);
-
-        // check coupon discount amount
         if ($couponDiscount['total_discount_amount'] > 0) {
             $discount += $couponDiscount['total_discount_amount'];
             $coupon = $couponDiscount['coupon'];
         }
 
-        // calculate payable amount
+        //  Calculate Final Payable Amount
         $payableAmount = ($totalAmount + $deliveryCharge + $totalTaxAmount) - $discount;
 
-        // return array
+        // Return Calculated Amounts
         return [
             'totalAmount' => $totalAmount,
             'totalTaxAmount' => $totalTaxAmount,
